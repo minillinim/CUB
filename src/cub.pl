@@ -98,8 +98,9 @@ checkAndRunCommand("squishOrfs.pl", [{
 if(!exists $global_options->{'keep'})
 {
     # the user wishes to keep the orfs
-    removeFile($global_orfs_fasta_file);
+    removeFile($global_gff_file);
 }
+removeFile($global_orfs_fasta_file);
 removeFile($pre_squished_file);
 
 # now barcode!             
@@ -120,6 +121,7 @@ sub removeFile {
     #-----
     # delete a file
     #
+    return;
     my ($fileName) = @_;
     checkAndRunCommand("rm", [{}, [$fileName]], WARN_ON_FAILURE);
 }
@@ -133,7 +135,7 @@ sub checkParams {
     #-----
     # Do any and all options checking here...
     #
-    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "glimmer|g+", "keep|k+", "length|l:i");
+    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "glimmer|g+", "keep|k+", "length|l:i", "protein|p:i",);
     my %options;
 
     # Add any other command line options, and the code to handle them
@@ -342,7 +344,7 @@ __DATA__
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 =head1 DESCRIPTION
 
@@ -357,6 +359,29 @@ __DATA__
       [-length -l LENGTH]          Reject any orfs shorter than this length [default: 50]
       [-keep -k]                   Keep the ORFs file
       [-glimmer -g]                Use glimmer to call orfs [default: use prodigal]
-      [-help -h]                   Displays basic usage information
+      [-protein -p CODON_CODE]     Protein translation table [default: 11] --> see below 
+      [-help]                      Displays basic usage information
+
+      CODON_CODE
+      
+      Specify a number from the following list (Uses: Bio::Tools::CodonTable)
+      
+      1 Standard
+      2 Vertebrate Mitochondrial
+      3 Yeast Mitochondrial
+      4 Mold, Protozoan,_and_CoelenterateMitochondrial_and_Mycoplasma/Spiroplasma
+      5 Invertebrate Mitochondrial
+      6 Ciliate, Dasycladacean_and_Hexamita_Nuclear
+      9 Echinoderm Mitochondrial
+      10 Euplotid Nuclear
+      11 Bacterial
+      12 Alternative Yeast_Nuclear
+      13 Ascidian Mitochondrial
+      14 Flatworm Mitochondrial
+      15 Blepharisma Nuclear
+      16 Chlorophycean Mitochondrial
+      21 Trematode Mitochondrial
+      22 Scenedesmus obliquus_Mitochondrial
+      23 Thraustochytrium Mitochondrial
          
 =cut

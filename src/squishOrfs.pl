@@ -64,22 +64,29 @@ my $current_seq_header = "unset";
 my $current_seq = "";
 my $seqio = Bio::SeqIO->new(-file => $global_options->{'in'}, '-format' => 'Fasta');
 while(my $seq = $seqio->next_seq) {
-  # 
-  # record seq length
-  my $header = $seq->id;
-  if($header ne $current_seq_header)
-  {
-      # print out the old sequence!
-      print $outfile ">$current_seq_header\n";
-      print $outfile $current_seq."\n";
-      $current_seq_header = $header;
-      $current_seq = "";
-  }
-  $current_seq .= $seq->seq;
+   # 
+   # record seq length
+   my $header = $seq->id;
+   if($header ne $current_seq_header)
+   {
+       if($current_seq_header ne "unset")
+       {
+           # print out the old sequence!
+           print $outfile ">$current_seq_header\n";
+           print $outfile $current_seq."\n";
+       }
+       $current_seq_header = $header;
+       $current_seq = "";
+   }
+   $current_seq .= $seq->seq;
 }
 
-print $outfile ">$current_seq_header\n";
-print $outfile $current_seq."\n";
+# print out the last sequence!
+if($current_seq_header ne "unset")
+{
+    print $outfile ">$current_seq_header\n";
+    print $outfile $current_seq."\n";
+}
 
 close $outfile;
 ######################################################################

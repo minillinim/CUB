@@ -36,6 +36,7 @@ use Carp;
 #CPAN modules
 use Bio::SeqIO;
 use Data::Dumper;
+use Bio::Tools::CodonTable;
 
 #locally-written modules
 
@@ -64,37 +65,12 @@ if(!exists $global_options->{'silent'}) { printAtStart(); }
 # CODE HERE
 ######################################################################
 # override defaults
-my $global_kmer_length = 3;             # default kmer length of 3
-my $global_cut_off_len = overrideDefault($global_window_size , 'cutoff');
-
-
-if(!exists $global_options->{'silent'}) {
-print<<EOF
-    Making CU barcodes:
-----------------------------------------------------------------
-    Kmer length:                       $global_kmer_length mers
-    Rejecting all seqs shorter than:   $global_cut_off_len bp
-    Using:                             $global_num_threads threads
-----------------------------------------------------------------
-EOF
-}
+my $global_cut_off_len = overrideDefault(102, 'cutoff');
+my $global_protein_code =  overrideDefault(11,'protein');
 
 # make the kmer array
-my @global_mer_array = makeMers($global_kmer_length, 1);
-
-# do no averages by default
-my $global_do_aves = 0;
-my $global_aves_fh;
-if(exists $global_options->{'ave'}) {
-    $global_aves_fh = openWrite($global_options->{'ave'});
-    $global_do_aves = 1;
-    printOutHeaderRow($global_aves_fh);
-}
-
-# a place to store good sequences -> shared across threads!
-my @global_good_seqs = ();
-my $global_good_seqs_counter = 0;
-my $global_still_parsing = 1;
+my %global_prot_hash = ();              # reverse lookup of proteins
+my @global_mer_array = makeMers();      # store all the 3-mers
 
 # keep count of where we're at
 my $global_update_amount = 1000;
@@ -104,139 +80,39 @@ my $global_parsed_seqs = 0;
 my $global_complete_seqs = 0;
 my $global_rejected_seqs = 0;
 
-share (@global_good_seqs);
-share ($global_good_seqs_counter);
-share ($global_still_parsing);
-share ($global_valid_seqs);
-
 # open the output file
 my $global_out_fh = openWrite($global_options->{'out'});
 printOutHeaderRow($global_out_fh);
 
 # one thread for parsing through the seqio object
 my $seqio = Bio::SeqIO->new(-file => $global_options->{'in'}, '-format' => 'Fasta');
-my $parse_thread = threads->new(\&packSeqNIDs, $seqio);
-sleep(2);
 
-# IO management
-my $update_count = $global_update_amount;
-my @super_full = ();
-my @super_aves = ();
-
-# do seqs in batches
-my $batch_size = 5;
-$batch_size *= 2;
-
-# keep parsing as long as we have to
-my $keep_parsing = 0;
-{
-    lock($global_valid_seqs);
-    if($global_valid_seqs > $global_parsed_seqs) { $keep_parsing = 1; }
-}
-while(1 == $keep_parsing)
-{
-    # start N-1 threads at a time
-    my @all_threads = ();
-    my $num_started_this_loop = 0;
-    foreach my $thread_counter (1..$global_working_threads) {
-        {
-            # get the next good sequence
-            lock(@global_good_seqs);
-            lock($global_good_seqs_counter);
-            if($global_good_seqs_counter > $#global_good_seqs) {
-                my $keep_waiting = 0;
-                {
-                    lock($global_still_parsing);
-                    $keep_waiting = $global_still_parsing;
-                }
-                
-                while(1 == $global_still_parsing) {
-                    # give the parser a chance to catch up
-                    sleep(1);
-                    # check if we have something to do yet
-                    last if($global_good_seqs_counter <= $#global_good_seqs);
-                    # perhaps we can go through this list again...
-                    {
-                        lock($global_still_parsing);
-                        $keep_waiting = $global_still_parsing;
-                    }
-                }
-                {
-                    lock($global_still_parsing);
-                    if((0 == $global_still_parsing) and ($global_good_seqs_counter > $#global_good_seqs))
-                    {
-                        $thread_counter = $global_working_threads;
-                        $keep_parsing = 0;
-                        last;
-                    }
-                }
-            }
-            if(1 == $keep_parsing)
-            {
-                # got a sequence to parse!
-                my $seq_id = $global_good_seqs[$global_good_seqs_counter];
-                $global_good_seqs_counter++;
-                my $seq_string = $global_good_seqs[$global_good_seqs_counter];
-                $global_good_seqs_counter++;
-
-                # cut barcodes on a new thread
-                $num_started_this_loop++;
-                $global_parsed_seqs++;
-                #print "starting: $seq_id $global_parsed_seqs\n";
-                
-                # DO NOT REMOVE THIS TWO STEP THREAD START!
-                # SEE: http://www.perlmonks.org/?node_id=265269
-                my ($thr) = threads->new(\&makeSeqBarcodes, ($seq_id, $seq_string));
-                $all_threads[$thread_counter] = $thr;
-            }
-        }
-    }
-    
-    foreach my $thread_counter (1..$num_started_this_loop) {
-        # get the next thread and wait for him to complete
-        my $this_thread = $all_threads[$thread_counter];
-        my ($full_bcode, $aves_bcode) = $this_thread->join;
-    
-        # Save on IO ops
-        push @super_full, $full_bcode;
-        push @super_aves, $aves_bcode;
-           
-        # print print and update the user
-        $global_complete_seqs++;
-        $update_count--;
-        if(0 == $update_count) {
-            if(!exists $global_options->{'silent'}) { print "Processed: $global_complete_seqs\n"; }
-    
-            # print now!
-            foreach my $line (@super_full) { print $global_out_fh $line; }
-            foreach my $line (@super_aves) { print $global_aves_fh $line; }
-                
-            $#super_full = -1;
-            $#super_aves = -1;
-                
-            $update_count = $global_update_amount;
-        }
-    }
-    # another round?
+while(my $seq = $seqio->next_seq) {
+    # record seq length
+    my $seq_len = $seq->length();
+    next if ($seq_len < $global_cut_off_len);
+  
+    my @raw_barcode = cutMers4Barcode($seq->seq);
+    foreach my $protein (keys %global_prot_hash)
     {
-        lock($global_valid_seqs);
-        if($global_valid_seqs > $global_parsed_seqs) { $keep_parsing = 1; }
-    }  
+        my $total = 0;
+        foreach my $index (@{$global_prot_hash{$protein}}) 
+        {
+            $total += $raw_barcode[$index];
+        }
+        foreach my $index (@{$global_prot_hash{$protein}}) 
+        {
+            if(0 != $total)
+            {
+                $raw_barcode[$index] = sprintf("%0.4f", ($raw_barcode[$index]/$total));
+            }
+        }
+    }
+    print $global_out_fh join "\t", @raw_barcode, "\n";    
 }
-
-# print remaining!
-foreach my $line (@super_full) { print $global_out_fh $line; }
-foreach my $line (@super_aves) { print $global_aves_fh $line; }
-
-# close this thread off
-$parse_thread->join;
 
 # close the files
 close($global_out_fh);
-if(1 == $global_do_aves)
-{
-    close($global_aves_fh);
-}
 
 if(!exists $global_options->{'silent'})
 {
@@ -250,38 +126,6 @@ EOF
 ######################################################################
 # CUSTOM SUBS
 ######################################################################
-sub packSeqNIDs {
-    #-----
-    # Go through the fasta file and pack the global
-    # arrays with seqs and IDs
-    #
-    my ($seqio) = @_;
-    while(my $seq = $seqio->next_seq)
-    {
-        my $seq_string = $seq->seq;
-        next if ((length $seq_string < $global_window_size) or (length $seq_string < $global_cut_off_len));
-        my $seq_id = $seq->id;
-        $seq_id =~ s/ /_/gi;
-        # push this onto the global list of good sequences
-        {
-            lock(@global_good_seqs);
-            push @global_good_seqs, $seq_id;
-            push @global_good_seqs, $seq_string;
-            {
-                lock($global_valid_seqs);
-                $global_valid_seqs++;
-                #print "--> $global_valid_seqs\n";
-            }
-        }
-    }
-    
-    # let the other threads know that we're done!
-    {
-        lock($global_still_parsing);
-        $global_still_parsing = 0;
-    }
-}
-
 sub printOutHeaderRow
 {
     #-----
@@ -296,120 +140,36 @@ sub printOutHeaderRow
     print $fh "\n";
 }
 
-sub makeSeqBarcodes {
-    my ($id, $seq_string) = @_;
-    my $barcodes_ref = cutWindows($seq_string);
-    my $window_counter = 0;
-    my @aves_array = ();
-    
-    # return the barcode via these two strings
-    my $aves_bcode = "";
-    my $full_bcode = "";
-    
-    if(0 ==  scalar @{ $barcodes_ref }) { return 1; }
-    
-    # intialise the averages array
-    if(1 == $global_do_aves)
-    {
-        foreach my $kmer (@global_mer_array)
-        {
-            push @aves_array, 0;
-        }
-    }
-    
-    foreach my $window_barcode_ref (@$barcodes_ref)
-    {
-        $full_bcode .= "$id"."__$window_counter";
-        my $i = 0;
-        foreach my $current_count (@$window_barcode_ref)
-        {
-            $full_bcode .= ",$current_count";
-            if( 1 == $global_do_aves)
-            {
-                $aves_array[$i] += $current_count;
-                $i++;
-            }
-        }
-        $full_bcode .= "\n";
-        $window_counter++;
-    }
-    
-    if(1 == $global_do_aves)
-    {
-        $aves_bcode .= "$id";
-        foreach my $count_total (@aves_array)
-        {
-            $aves_bcode .= sprintf(",%.6f",($count_total/$window_counter));
-        }
-        $aves_bcode .= "\n";
-    }
-    return ($full_bcode, $aves_bcode);
-}
-
-sub cutWindows {
-    #-----
-    # tap into them global vars!
-    # cut the sequence into windows and pass them along
-    # and then make barcodes for ALL!
-    #
-    my ($sequence) = @_;
-    my $seq_length = length $sequence;
-
-    # do nothing if the window if too short
-    my @sequence_barcodes = ();
-    if($seq_length < $global_window_size) { return \@sequence_barcodes; }
-    my $sub_start =  0;
-    while($sub_start + $global_window_size <= $seq_length)
-    {
-        push @sequence_barcodes, cutMersNBarcode(substr $sequence, $sub_start, $global_window_size);
-        $sub_start += $global_window_offset;
-    }
-    if(1 == $global_use_all_read)
-    {
-        $sub_start -= $global_window_offset;
-        if($sub_start + $global_window_size != $seq_length)
-        {
-            push @sequence_barcodes, cutMersNBarcode(substr $sequence, ($seq_length - $global_window_size), $global_window_size);
-        }
-    }
-    return \@sequence_barcodes;
-}
-
-sub cutMersNBarcode {
+sub cutMers4Barcode {
     #-----
     # cut each window in kmers and do barcodes
     #
-    my ($window) = @_;
-    my $window_length = length $window;
+    my ($sequence) = @_;
+    my $sequence_length = length $sequence;
     my $sub_start = 0;
     
     # get a fresh map to do counting in
     my $mer_map_ref = merArray2Map();
     
     # cut into kmers and add to the map
-    while($sub_start + $global_kmer_length <= $window_length)
+    while($sub_start + 3 <= $sequence_length)
     {
         # look out for non ACGT chars!
-        my $this_mer = lowlexi(substr $window, $sub_start, $global_kmer_length);
+        my $this_mer = substr $sequence, $sub_start, 3;
+        print "$this_mer\n"; 
         if(exists $$mer_map_ref{$this_mer})
         {
             $$mer_map_ref{$this_mer}++;
         }
-        $sub_start += $global_kmer_offset;
-    }
-    $sub_start -= $global_kmer_offset;
-    if($sub_start + $global_kmer_length != $window_length)
-    {
-        # look out for non ACGT chars!
-        my $this_mer = lowlexi(substr $window, $sub_start, $global_kmer_length);
-        if(exists $$mer_map_ref{$this_mer})
-        {
-            $$mer_map_ref{$this_mer}++;
-        }
+        $sub_start += 3;
     }
     
-    # return the barcode for this window
-    return merMap2Barcode($mer_map_ref);
+    my @raw_barcode = ();
+    foreach my $this_mer (@global_mer_array)
+    {
+        push @raw_barcode, ($$mer_map_ref{$this_mer});
+    }
+    return @raw_barcode;
 }
 
 sub merArray2Map {
@@ -424,102 +184,40 @@ sub merArray2Map {
     return \%return_map;
 }
 
-sub merMap2Barcode {
-    #-----
-    # make an array barcode from a hash of kmer counts
-    #
-    my ($mer_map_ref) = @_;
-    my @barcode = ();
-    foreach my $this_mer (@global_mer_array)
-    {
-        push @barcode, ($$mer_map_ref{$this_mer});
-    }
-    return \@barcode;
-}
-
 sub makeMers {
-    #
-    # main wrapper for the working part of the kmer list making algorithm
-    # $global_kmer_length and $sort must be either 1 or 0
-    #
-    my ($mer_length, $sort) = @_;
-    my ($mer_array_ref, $gc_array_ref) = makeMersRec($mer_length - 1);
-
-    # remove all but the lexicographically lowest versions of each kmer.
-    my %output_hash = ();
-    for my $i (0 .. scalar @{ $mer_array_ref } - 1)
-    {
-        $output_hash{lowlexi(@$mer_array_ref[$i])} = @$gc_array_ref[$i];
-    }
-
-    # the output_hash now holds a laurenized hash of mers => gc count
-    my @output_array = ();
-    
-    # sort by GC if need be
-    if(1 == $sort)
-    {
-        foreach my $key (sort { $output_hash{$a} <=> $output_hash{$b} }( keys(%output_hash) ) ) {
-            push @output_array, $key;
-        }
-    }
-    else
-    {
-        foreach my $key ( keys(%output_hash) ) {
-            push @output_array, $key;
-        }
-    }
-    
-    return @output_array;
-}
-
-sub makeMersRec {
     #-----
-    # recursive function
-    # makes a kmer list of a given length
-    # 
-    my ($mer_length) = @_;
-
-    my @this_rounds_array = ();
-    my @this_rounds_gc = ();
+    # Make all 3-mers and work out their groupings
+    #
     my @alphabet = ('A', 'C', 'G', 'T');
-    my @GC = (0,1,1,0);
-
-    if($mer_length == 0) {
-        return (\@alphabet, \@GC);
-    }
-    else
-    {
-        # get the lower array
-        my ($mer_array_ref, $gc_array_ref) = makeMersRec($mer_length - 1);
-        foreach my $alpha_index (0 .. $#alphabet) 
-        {
-            foreach my $mer_index ( 0 .. (scalar @{ $mer_array_ref } - 1) )
-            {
-                push @this_rounds_array, ($alphabet[$alpha_index].@$mer_array_ref[$mer_index]);
-                push @this_rounds_gc, ($GC[$alpha_index] + @$gc_array_ref[$mer_index]);
-            }     
+    my @output_array = ();
+    my $index = 0;
+    my $codon_table  = Bio::Tools::CodonTable -> new ( -id => $global_protein_code );
+    foreach my $i (0..3) {
+        foreach my $j (0..3) {
+            foreach my $k (0..3) {
+                my $mer = $alphabet[$i].$alphabet[$j].$alphabet[$k];
+                my $protein  = $codon_table->translate($mer);
+                if(!exists $global_prot_hash{$protein})
+                {
+                    # first time seen - get an array to store all the relative mers
+                    my @tmp = ();
+                    push @tmp, $index;
+                    $global_prot_hash{$protein} = \@tmp;
+                } 
+                else
+                {
+                    push @{$global_prot_hash{$protein}}, $index;
+                }
+                
+                # push the trimer onto the main array
+                push @output_array, $mer;
+                
+                # update the index so we can store the rev-lookup right
+                $index++;
+            }
         }
-        return (\@this_rounds_array, \@this_rounds_gc);
     }
-}
-
-sub revcompl {
-    #-----
-    # Reverse complement a sequence
-    #
-    my ($seq) = @_;
-    $seq =~ tr/ACGTNacgtn/TGCANtgcan/;
-    return scalar reverse $seq;
-}
-
-sub lowlexi {
-    #-----
-    # Return the lowest lexicographical form of a sequence
-    #
-    my ($seq) = @_;
-    my $rev_seq = revcompl($seq);
-    if($seq lt $rev_seq) { return $seq; }
-    else { return $rev_seq; }
+    return @output_array;
 }
 
 ######################################################################
@@ -532,7 +230,7 @@ sub checkParams {
     #-----
     # Do any and all options checking here...
     #
-    my @standard_options = ( "help+", "threads|t:i", "in|i:s", "out|o:s", "cutoff|c:i", "silent+" );
+    my @standard_options = ( "help+", "in|i:s", "out|o:s", "cutoff|c:i", "silent+", "protein|p:i",);
     my %options;
 
     # Add any other command line options, and the code to handle them
@@ -579,7 +277,6 @@ sub overrideDefault
 
 ######################################################################
 # FILE IO
-
 sub openWrite
 {
     #-----
@@ -734,10 +431,33 @@ __DATA__
 
     barcodeByCU.pl -in|i FILE -out|o FILE
 
-    -i -in FILE               The file to work on
-    -o -out FILE              The file to write to
-    [-c -cutoff INT]          Reject all sequences shorter than this [default: WINDOW_SIZE]
-    [-silent]                 Output nothing extra to the screen
-    [-help]                   Displays basic usage information
+    -i -in FILE                  The SQUISHED file to work on
+    -o -out FILE                 The file to write barcodes to
+    [-c -cutoff INT]             Reject all sequences shorter than this [default: 102]
+    [-protein -p CODON_CODE]     Protein translation table [default: 11] --> see below 
+    [-silent]                    Output nothing extra to the screen
+    [-help]                      Displays basic usage information
+
+    CODON_CODE
+     
+    Specify a number from the following list (Uses: Bio::Tools::CodonTable)
+      
+    1 Standard
+    2 Vertebrate Mitochondrial
+    3 Yeast Mitochondrial
+    4 Mold, Protozoan,_and_CoelenterateMitochondrial_and_Mycoplasma/Spiroplasma
+    5 Invertebrate Mitochondrial
+    6 Ciliate, Dasycladacean_and_Hexamita_Nuclear
+    9 Echinoderm Mitochondrial
+    10 Euplotid Nuclear
+    11 Bacterial
+    12 Alternative Yeast_Nuclear
+    13 Ascidian Mitochondrial
+    14 Flatworm Mitochondrial
+    15 Blepharisma Nuclear
+    16 Chlorophycean Mitochondrial
+    21 Trematode Mitochondrial
+    22 Scenedesmus obliquus_Mitochondrial
+    23 Thraustochytrium Mitochondrial
          
 =cut
