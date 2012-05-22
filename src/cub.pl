@@ -113,10 +113,11 @@ checkAndRunCommand("rm", [{}, $pre_squished_file], WARN_ON_FAILURE);
 
 # now barcode!             
 checkAndRunCommand("barcodeByCU.pl", [{
-                                     -i => $squished_file,
-                                     -o => $global_options->{'out'},
-                                     -t => $global_options->{'threads'},
-                                     -c => $global_reject_length
+                                     -in => $squished_file,
+                                     -out => $global_options->{'out'},
+                                     -threads => $global_options->{'threads'},
+                                     -cutoff => $global_reject_length,
+                                     -silent => "" 
                                      }], DIE_ON_FAILURE); 
 
 # remove the squished file
@@ -136,7 +137,7 @@ sub checkParams {
     #-----
     # Do any and all options checking here...
     #
-    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "glimmer|g+", "keep|k+", "length|l:i");
+    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "glimmer|g+", "keep|k+", "length|l:i", "threads|t:i");
     my %options;
 
     # Add any other command line options, and the code to handle them
@@ -360,6 +361,11 @@ __DATA__
       [-length -l LENGTH]          Reject any orfs shorter than this length [default: 50]
       [-keep -k]                   Keep the ORFs file
       [-glimmer -g]                Use glimmer to call orfs [default: use prodigal]
+      [-t -threads INT]            The number of threads to use [default: 2] 
+                                   NOTE: For reasons not worth going into here, it's generally
+                                   worth your while to run this guy with many threads
+                                   Try using 2 cores less than the capacity of your machine.
+                                   It won't hurt nothing!
       [-help -h]                   Displays basic usage information
          
 =cut

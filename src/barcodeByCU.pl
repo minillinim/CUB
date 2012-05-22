@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 ###############################################################################
 #
-#    barcodeByMers.pl
+#    barcodeByCU.pl
 #    
 #    Create kmer barcodes for a set of sequences
 #
@@ -63,17 +63,8 @@ if(!exists $global_options->{'silent'}) { printAtStart(); }
 # CODE HERE
 ######################################################################
 # override defaults
-my $global_kmer_length = overrideDefault(4, 'kmer_length');      # default kmer length of 4
-my $global_window_size = overrideDefault(2000, 'window_size');
+my $global_kmer_length = 3;             # default kmer length of 3
 my $global_cut_off_len = overrideDefault($global_window_size , 'cutoff');
-
-# abutting kmers and windows by default.
-my $global_kmer_offset = overrideDefault(1,'kmer_offset');
-my $global_window_offset = overrideDefault($global_window_size, 'window_offset');
-
-# by default, use the entire read
-my $global_use_all_read = 1;
-if(exists $global_options->{'no_lo'}) { $global_use_all_read = 0; }
 
 # threading! -> default of two threads, one for file parsing and one for 
 # munging. Any more than 2 and the exess all get used for munging
@@ -82,12 +73,9 @@ my $global_working_threads = $global_num_threads-1;
 
 if(!exists $global_options->{'silent'}) {
 print<<EOF
-    Making barcodes:
+    Making CU barcodes:
 ----------------------------------------------------------------
     Kmer length:                       $global_kmer_length mers
-    Kmer offset:                       $global_kmer_offset bp 
-    Window size:                       $global_window_size bp
-    Window offset:                     $global_window_offset bp
     Rejecting all seqs shorter than:   $global_cut_off_len bp
     Using:                             $global_num_threads threads
 ----------------------------------------------------------------
@@ -547,7 +535,7 @@ sub checkParams {
     #-----
     # Do any and all options checking here...
     #
-    my @standard_options = ( "help+", "threads|t:i", "in|i:s", "out|o:s", "ave|a:s", "kmer_length|k:i", "window_size|w:i", "kmer_offset|M:i", "window_offset|D:i", "cutoff|c:i", "no_lo+", "silent+" );
+    my @standard_options = ( "help+", "threads|t:i", "in|i:s", "out|o:s", "cutoff|c:i", "silent+" );
     my %options;
 
     # Add any other command line options, and the code to handle them
@@ -719,7 +707,7 @@ __DATA__
 
 =head1 NAME
 
-  barcodeByMers.pl
+  barcodeByCU.pl
   
 =head1 COPYRIGHT
 
@@ -746,23 +734,16 @@ __DATA__
   
 =head1 SYNOPSIS
 
-    barcodeByMers.pl -in|i FILE -out|o FILE
+    barcodeByCU.pl -in|i FILE -out|o FILE
 
     -i -in FILE               The file to work on
     -o -out FILE              The file to write to
-    [-a -ave FILE]            Filename to write whole contig average barcodes to [default: NO averages]
     [-t -threads INT]         The number of threads to use [default: 2] 
                               NOTE: For reasons not worth going into here, it's generally
                               worth your while to run this guy with many threads
                               Try using 2 cores less than the capacity of your machine.
                               It won;t hurt nothing!
     [-c -cutoff INT]          Reject all sequences shorter than this [default: WINDOW_SIZE]
-    [-k -kmer_length INT]     The kmer length to use [default: 4]
-    [-M -kmer_offset INT]     Offset to move kmers along in window [default: 1]
-    [-w -window_size INT]     Window size to bin kmers in [default: 2000]
-    [-D -window_offset INT]   Offset to move the window along by [default: WINDOW_SIZE]
-    [-no_lo]                  Discard the end of the contig if it is not a whole window length [default: false]
-                              ie. Default -> Make the last window start from the end of the read and work backwards (use all of the read)
     [-silent]                 Output nothing extra to the screen
     [-help]                   Displays basic usage information
          
