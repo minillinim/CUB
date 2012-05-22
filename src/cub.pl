@@ -31,6 +31,7 @@ use Getopt::Long;
 use Carp;
 
 #CPAN modules
+use Data::Dumper;
 
 #locally-written modules
 
@@ -78,28 +79,12 @@ checkAndRunCommand("gff2fasta.pl", [{
                                    }], DIE_ON_FAILURE);
 
 # update the orfs file ready for squishing
-my $pre_squished_file = $global_orfs_fasta_file;
-if(exists $global_options->{'keep'})
-{
-    # the user wishes to keep the orfs
-    # we need to squish elsewhere
-    $pre_squished_file = $global_orfs_fasta_file.".presquish";
-    checkAndRunCommand("sed", [{
-                              -e => "\"s/_[^_]*_[^_]*_.$//\""
-                              },
-                              "$global_orfs_fasta_file > $pre_squished_file"
-                              ], DIE_ON_FAILURE);  
-}
-else
-{
-    checkAndRunCommand("sed", [
-                              -i,
-                              {
-                              -e => "\"s/_[^_]*_[^_]*_.$//\""
-                              },
-                              $pre_squished_file
-                              ], DIE_ON_FAILURE);  
-}
+my $pre_squished_file = $global_orfs_fasta_file.".presquish";
+checkAndRunCommand("sed", [{
+                          -e => "\"s/_[^_]*_[^_]*_.\$//\""
+                          },
+                          ["$global_orfs_fasta_file > $pre_squished_file"]
+                          ], DIE_ON_FAILURE);  
 
 my $squished_file = $pre_squished_file.".squished";
 # squish it all up       
@@ -108,25 +93,36 @@ checkAndRunCommand("squishOrfs.pl", [{
                                     -out => $squished_file
                                     }], DIE_ON_FAILURE);
    
+
 # clean up the ORFs file (if need be)   
-checkAndRunCommand("rm", [{}, $pre_squished_file], WARN_ON_FAILURE);
+if(!exists $global_options->{'keep'})
+{
+    # the user wishes to keep the orfs
+    removeFile($global_orfs_fasta_file);
+}
+removeFile($pre_squished_file);
 
 # now barcode!             
 checkAndRunCommand("barcodeByCU.pl", [{
                                      -in => $squished_file,
                                      -out => $global_options->{'out'},
-                                     -threads => $global_options->{'threads'},
                                      -cutoff => $global_reject_length,
                                      -silent => "" 
                                      }], DIE_ON_FAILURE); 
 
 # remove the squished file
-checkAndRunCommand("rm", [{}, $squished_file], WARN_ON_FAILURE); 
+removeFile($squished_file);
 
 ######################################################################
 # CUSTOM SUBS
 ######################################################################
-
+sub removeFile {
+    #-----
+    # delete a file
+    #
+    my ($fileName) = @_;
+    checkAndRunCommand("rm", [{}, [$fileName]], WARN_ON_FAILURE);
+}
 ######################################################################
 # TEMPLATE SUBS
 
@@ -137,7 +133,7 @@ sub checkParams {
     #-----
     # Do any and all options checking here...
     #
-    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "glimmer|g+", "keep|k+", "length|l:i", "threads|t:i");
+    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "glimmer|g+", "keep|k+", "length|l:i");
     my %options;
 
     # Add any other command line options, and the code to handle them
@@ -283,14 +279,14 @@ sub formatParams {
     # checkAndRunCommand
     #
     my $ref = shift;
-    
+
     if (ref($ref) eq "ARRAY") {
         return join(" ", @{$ref});
     } elsif (ref($ref) eq "HASH") {
         return join(" ", map { $_ . " " . $ref->{$_}} keys %{$ref});
     }
     croak 'The elements of the $params argument in checkAndRunCommand can ' .
-        'only contain references to arrays or hashes\n';
+        'only contain references to arrays or hashes';
 }
 
 
@@ -361,11 +357,6 @@ __DATA__
       [-length -l LENGTH]          Reject any orfs shorter than this length [default: 50]
       [-keep -k]                   Keep the ORFs file
       [-glimmer -g]                Use glimmer to call orfs [default: use prodigal]
-      [-t -threads INT]            The number of threads to use [default: 2] 
-                                   NOTE: For reasons not worth going into here, it's generally
-                                   worth your while to run this guy with many threads
-                                   Try using 2 cores less than the capacity of your machine.
-                                   It won't hurt nothing!
       [-help -h]                   Displays basic usage information
          
 =cut

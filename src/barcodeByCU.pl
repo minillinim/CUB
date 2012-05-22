@@ -3,7 +3,10 @@
 #
 #    barcodeByCU.pl
 #    
-#    Create kmer barcodes for a set of sequences
+#    Input is a "squished" file of contigs, IE. all non-coding regions are
+#    removed and both strands are orientated in the forward direction. The
+#    length of all input sequences MUST be a multiple of 3. This script will
+#    calculate the codon usage for each contig in the input file.
 #
 #    Copyright (C) Michael Imelfort
 #
@@ -29,8 +32,6 @@ use warnings;
 #core Perl modules
 use Getopt::Long;
 use Carp;
-use threads;
-use threads::shared;
  
 #CPAN modules
 use Bio::SeqIO;
@@ -66,10 +67,6 @@ if(!exists $global_options->{'silent'}) { printAtStart(); }
 my $global_kmer_length = 3;             # default kmer length of 3
 my $global_cut_off_len = overrideDefault($global_window_size , 'cutoff');
 
-# threading! -> default of two threads, one for file parsing and one for 
-# munging. Any more than 2 and the exess all get used for munging
-my $global_num_threads = overrideDefault(2, 'threads');
-my $global_working_threads = $global_num_threads-1;
 
 if(!exists $global_options->{'silent'}) {
 print<<EOF
@@ -728,9 +725,10 @@ __DATA__
 
 =head1 DESCRIPTION
 
-  Given a multiple fasta file, calculate the length of the sequences, and
-  also the gc_content. Also calculate k-mer coverages for a given set of kmers.
-  Output everything to a CSV file
+  Input is a "squished" file of contigs, IE. all non-coding regions are removed
+  and both strands are orientated in the forward direction. The length of all
+  input sequences MUST be a multiple of 3. This script will calculate the codon usage
+  for each contig in the input file.
   
 =head1 SYNOPSIS
 
@@ -738,11 +736,6 @@ __DATA__
 
     -i -in FILE               The file to work on
     -o -out FILE              The file to write to
-    [-t -threads INT]         The number of threads to use [default: 2] 
-                              NOTE: For reasons not worth going into here, it's generally
-                              worth your while to run this guy with many threads
-                              Try using 2 cores less than the capacity of your machine.
-                              It won;t hurt nothing!
     [-c -cutoff INT]          Reject all sequences shorter than this [default: WINDOW_SIZE]
     [-silent]                 Output nothing extra to the screen
     [-help]                   Displays basic usage information
