@@ -73,11 +73,9 @@ my %global_prot_hash = ();              # reverse lookup of proteins
 my @global_mer_array = makeMers();      # store all the 3-mers
 
 # keep count of where we're at
-my $global_update_amount = 1000;
+my $global_update_amount = 100;
 
-my $global_valid_seqs = 0;
 my $global_parsed_seqs = 0;
-my $global_complete_seqs = 0;
 my $global_rejected_seqs = 0;
 
 # open the output file
@@ -87,10 +85,17 @@ printOutHeaderRow($global_out_fh);
 # one thread for parsing through the seqio object
 my $seqio = Bio::SeqIO->new(-file => $global_options->{'in'}, '-format' => 'Fasta');
 
-while(my $seq = $seqio->next_seq) {
+while(my $seq = $seqio->next_seq)
+{
+    $global_parsed_seqs++;
+    
     # record seq length
     my $seq_len = $seq->length();
-    next if ($seq_len < $global_cut_off_len);
+    if ($seq_len < $global_cut_off_len)
+    {
+        $global_rejected_seqs++;
+        next;
+    }
   
     my @raw_barcode = cutMers4Barcode($seq->seq);
     foreach my $protein (keys %global_prot_hash)
@@ -104,7 +109,11 @@ while(my $seq = $seqio->next_seq) {
         {
             if(0 != $total)
             {
-                $raw_barcode[$index] = sprintf("%0.4f", ($raw_barcode[$index]/$total));
+                $raw_barcode[$index] = sprintf("%0.6f", ($raw_barcode[$index]/$total));
+            }
+            else
+            {
+                $raw_barcode[$index] = sprintf("%0.6f", 0);
             }
         }
     }
@@ -117,7 +126,7 @@ close($global_out_fh);
 if(!exists $global_options->{'silent'})
 {
 print<<EOF
-    Processed: $global_complete_seqs sequences
+    Processed: $global_parsed_seqs sequences
     Rejected: $global_rejected_seqs sequences
 ----------------------------------------------------------------
 EOF
@@ -156,7 +165,6 @@ sub cutMers4Barcode {
     {
         # look out for non ACGT chars!
         my $this_mer = substr $sequence, $sub_start, 3;
-        print "$this_mer\n"; 
         if(exists $$mer_map_ref{$this_mer})
         {
             $$mer_map_ref{$this_mer}++;

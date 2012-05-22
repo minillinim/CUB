@@ -62,6 +62,7 @@ my $global_options = checkParams();
 my $global_gff_file = $global_options->{'in'}.".gff";
 my $global_orfs_fasta_file = $global_gff_file.".fasta";
 my $global_reject_length = overrideDefault(50,'length');
+my $global_protein_code =  overrideDefault(11,'protein');
 
 # first call the orfs on the contigs file
 checkAndRunCommand("callOrfs.pl", [{
@@ -108,7 +109,8 @@ checkAndRunCommand("barcodeByCU.pl", [{
                                      -in => $squished_file,
                                      -out => $global_options->{'out'},
                                      -cutoff => $global_reject_length,
-                                     -silent => "" 
+                                     -silent => "",
+                                     -protein => $global_protein_code
                                      }], DIE_ON_FAILURE); 
 
 # remove the squished file
