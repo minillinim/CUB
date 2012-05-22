@@ -121,7 +121,6 @@ sub removeFile {
     #-----
     # delete a file
     #
-    return;
     my ($fileName) = @_;
     checkAndRunCommand("rm", [{}, [$fileName]], WARN_ON_FAILURE);
 }

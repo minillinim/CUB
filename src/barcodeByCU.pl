@@ -108,7 +108,7 @@ while(my $seq = $seqio->next_seq) {
             }
         }
     }
-    print $global_out_fh join "\t", @raw_barcode, "\n";    
+    print $global_out_fh join ",", @raw_barcode, "\n";   
 }
 
 # close the files
