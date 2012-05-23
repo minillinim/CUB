@@ -117,7 +117,9 @@ while(my $seq = $seqio->next_seq)
             }
         }
     }
-    print $global_out_fh join ",", @raw_barcode, "\n";   
+    print $global_out_fh $seq->id, ",";
+    print $global_out_fh join ",", @raw_barcode;
+    print $global_out_fh "\n";   
 }
 
 # close the files
@@ -167,7 +169,7 @@ sub cutMers4Barcode {
         my $this_mer = substr $sequence, $sub_start, 3;
         if(exists $$mer_map_ref{$this_mer})
         {
-            $$mer_map_ref{$this_mer}++;
+            ${$mer_map_ref}{$this_mer}++;
         }
         $sub_start += 3;
     }
@@ -175,7 +177,7 @@ sub cutMers4Barcode {
     my @raw_barcode = ();
     foreach my $this_mer (@global_mer_array)
     {
-        push @raw_barcode, ($$mer_map_ref{$this_mer});
+        push @raw_barcode, (${$mer_map_ref}{$this_mer});
     }
     return @raw_barcode;
 }
