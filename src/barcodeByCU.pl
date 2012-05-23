@@ -96,27 +96,29 @@ while(my $seq = $seqio->next_seq)
         $global_rejected_seqs++;
         next;
     }
-  
+
+    # get the raw barcode for the sequence  
     my @raw_barcode = cutMers4Barcode($seq->seq);
-    foreach my $protein (keys %global_prot_hash)
+    
+    my $absolute_total = 0;
+    foreach my $index (0 .. $#raw_barcode)
     {
-        my $total = 0;
-        foreach my $index (@{$global_prot_hash{$protein}}) 
+        $absolute_total += $raw_barcode[$index];
+    }
+    
+    # do a universal average
+    foreach my $index (0 .. $#raw_barcode)
+    {
+        if(0 != $absolute_total)
         {
-            $total += $raw_barcode[$index];
+            $raw_barcode[$index] = sprintf("%0.6f", ($raw_barcode[$index]/$absolute_total));
         }
-        foreach my $index (@{$global_prot_hash{$protein}}) 
+        else
         {
-            if(0 != $total)
-            {
-                $raw_barcode[$index] = sprintf("%0.6f", ($raw_barcode[$index]/$total));
-            }
-            else
-            {
-                $raw_barcode[$index] = sprintf("%0.6f", 0);
-            }
+            $raw_barcode[$index] = sprintf("%0.6f", 0);
         }
     }
+    
     print $global_out_fh $seq->id, ",";
     print $global_out_fh join ",", @raw_barcode;
     print $global_out_fh "\n";   
@@ -161,19 +163,21 @@ sub cutMers4Barcode {
     
     # get a fresh map to do counting in
     my $mer_map_ref = merArray2Map();
+#    my $codon_table  = Bio::Tools::CodonTable -> new ( -id => $global_protein_code );
     
     # cut into kmers and add to the map
     while($sub_start + 3 <= $sequence_length)
     {
         # look out for non ACGT chars!
         my $this_mer = substr $sequence, $sub_start, 3;
+#        print $this_mer, " => ", $codon_table->translate($this_mer).",";
         if(exists $$mer_map_ref{$this_mer})
         {
             ${$mer_map_ref}{$this_mer}++;
         }
         $sub_start += 3;
     }
-    
+#    print "\n";
     my @raw_barcode = ();
     foreach my $this_mer (@global_mer_array)
     {
@@ -202,11 +206,14 @@ sub makeMers {
     my @output_array = ();
     my $index = 0;
     my $codon_table  = Bio::Tools::CodonTable -> new ( -id => $global_protein_code );
+    my @printable_protein_array = ();
     foreach my $i (0..3) {
         foreach my $j (0..3) {
             foreach my $k (0..3) {
                 my $mer = $alphabet[$i].$alphabet[$j].$alphabet[$k];
                 my $protein  = $codon_table->translate($mer);
+                push @printable_protein_array, $protein;
+                #print "$mer -> $protein -> $index\n";
                 if(!exists $global_prot_hash{$protein})
                 {
                     # first time seen - get an array to store all the relative mers
@@ -227,6 +234,8 @@ sub makeMers {
             }
         }
     }
+    #print Dumper %global_prot_hash;
+    if(exists $global_options->{'print_proteins'}) { print "PROTEIN LIST:\n"; print join ",", @printable_protein_array; print "\n";}
     return @output_array;
 }
 
@@ -240,7 +249,7 @@ sub checkParams {
     #-----
     # Do any and all options checking here...
     #
-    my @standard_options = ( "help+", "in|i:s", "out|o:s", "cutoff|c:i", "silent+", "protein|p:i",);
+    my @standard_options = ( "help+", "in|i:s", "out|o:s", "cutoff|c:i", "silent+", "protein|p:i", "print_proteins+");
     my %options;
 
     # Add any other command line options, and the code to handle them
@@ -446,6 +455,7 @@ __DATA__
     [-c -cutoff INT]             Reject all sequences shorter than this [default: 102]
     [-protein -p CODON_CODE]     Protein translation table [default: 11] --> see below 
     [-silent]                    Output nothing extra to the screen
+    [-print_proteins]            Print the proteins corresponding to the codon vector
     [-help]                      Displays basic usage information
 
     CODON_CODE
