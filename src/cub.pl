@@ -59,24 +59,34 @@ my $global_options = checkParams();
 ######################################################################
 # CODE HERE
 ######################################################################
-my $global_gff_file = $global_options->{'in'}.".gff";
+my $global_gff_file = overrideDefault($global_options->{'in'}.".gff", 'gff');
 my $global_orfs_fasta_file = $global_gff_file.".fasta";
 my $global_reject_length = overrideDefault(50,'length');
+my $global_orfs_caller = overrideDefault("prodigal", 'caller');
 my $global_protein_code =  overrideDefault(11,'protein');
 
-# first call the orfs on the contigs file
-checkAndRunCommand("callOrfs.pl", [{
-                                  -in => $global_options->{'in'},
-                                  -out => $global_gff_file
-                                  }], DIE_ON_FAILURE);
+if(exists $global_options->{'gff'})
+{
+    checkFileExists($global_gff_file);
+    print "**NOTE: Using $global_gff_file\n";
+    $global_options->{'keep'} = 1;
+}
+else
+{
+    # first call the orfs on the contigs file
+    checkAndRunCommand("callOrfs.pl", [{
+                                      -in => $global_options->{'in'},
+                                      -out => $global_gff_file,
+                                      -caller => $global_orfs_caller
+                                      }], DIE_ON_FAILURE);
+}
 
 # make the gff3 file into a multiple fasta
 checkAndRunCommand("gff2fasta.pl", [{
                                    -gff => $global_gff_file,
                                    -fasta => $global_options->{'in'},
                                    -out => $global_orfs_fasta_file,
-                                   -w => "0",
-                                   -l => $global_reject_length
+                                   -w => "0"
                                    }], DIE_ON_FAILURE);
 
 # update the orfs file ready for squishing
@@ -104,14 +114,30 @@ if(!exists $global_options->{'keep'})
 removeFile($global_orfs_fasta_file);
 removeFile($pre_squished_file);
 
-# now barcode!             
-checkAndRunCommand("barcodeByCU.pl", [{
-                                     -in => $squished_file,
-                                     -out => $global_options->{'out'},
-                                     -cutoff => $global_reject_length,
-                                     -silent => "",
-                                     -protein => $global_protein_code
-                                     }], DIE_ON_FAILURE); 
+# now barcode!       
+if(exists $global_options->{'universal_ave'})
+{ 
+    checkAndRunCommand("barcodeByCU.pl", [{
+                                         -in => $squished_file,
+                                         -out => $global_options->{'out'},
+                                         -cutoff => $global_reject_length,
+                                         -silent => "",
+                                         -protein => $global_protein_code,
+                                         -print_proteins => ""
+                                         }], DIE_ON_FAILURE);    
+}
+else
+{
+    checkAndRunCommand("barcodeByCU.pl", [{
+                                         -in => $squished_file,
+                                         -out => $global_options->{'out'},
+                                         -cutoff => $global_reject_length,
+                                         -silent => "",
+                                         -protein => $global_protein_code,
+                                         -print_proteins => ""
+                                         }], DIE_ON_FAILURE); 
+}
+      
 
 # remove the squished file
 removeFile($squished_file);
@@ -136,7 +162,7 @@ sub checkParams {
     #-----
     # Do any and all options checking here...
     #
-    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "glimmer|g+", "keep|k+", "length|l:i", "protein|p:i",);
+    my @standard_options = ( "help|h+", "in|i:s", "out|o:s", "gff|g:s", "keep|k+", "length|l:i", "protein|p:i", "caller|c:s");
     my %options;
 
     # Add any other command line options, and the code to handle them
@@ -359,7 +385,8 @@ __DATA__
       -out -o BARCODE_FILE         Output file
       [-length -l LENGTH]          Reject any orfs shorter than this length [default: 50]
       [-keep -k]                   Keep the ORFs file
-      [-glimmer -g]                Use glimmer to call orfs [default: use prodigal]
+      [-caller -c NAME]            Use this ORF predictor (NAME is "prodigal" or "glimmer") [default: prodigal]
+      [-gff -g FILENAME]           Use this gff file
       [-protein -p CODON_CODE]     Protein translation table [default: 11] --> see below 
       [-help]                      Displays basic usage information
 
